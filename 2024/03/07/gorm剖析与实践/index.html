@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.1.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"example.com","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="作为golang中代表性的orm框架，它是如何实现的？有哪些特点？如何利用它提升开发效率？  1、GORM概述之前工作经历中使用java比较多，在ORM方面主要使用Mybatis，并做过一些扩展，如：基于拦截器实现动态数据权限。这里简单记录下学习gorm原理的过程。 什么是ORM？ ORM：对象关系映射（Object Relational Mapping）是通过使用描述对象和数据库之间映射的元数">
+<meta property="og:type" content="article">
+<meta property="og:title" content="gorm剖析与实践">
+<meta property="og:url" content="http://example.com/2024/03/07/gorm%E5%89%96%E6%9E%90%E4%B8%8E%E5%AE%9E%E8%B7%B5/index.html">
+<meta property="og:site_name" content="caleb&#96;s blog">
+<meta property="og:description" content="作为golang中代表性的orm框架，它是如何实现的？有哪些特点？如何利用它提升开发效率？  1、GORM概述之前工作经历中使用java比较多，在ORM方面主要使用Mybatis，并做过一些扩展，如：基于拦截器实现动态数据权限。这里简单记录下学习gorm原理的过程。 什么是ORM？ ORM：对象关系映射（Object Relational Mapping）是通过使用描述对象和数据库之间映射的元数">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://example.com/images/6.png">
+<meta property="og:image" content="http://example.com/images/7.png">
+<meta property="og:image" content="http://example.com/images/8.png">
+<meta property="og:image" content="http://example.com/images/9.png">
+<meta property="og:image" content="http://example.com/images/10.png">
+<meta property="og:image" content="http://example.com/images/11.png">
+<meta property="og:image" content="http://example.com/images/12.png">
+<meta property="og:image" content="http://example.com/images/13.png">
+<meta property="og:image" content="http://example.com/images/14.png">
+<meta property="og:image" content="http://example.com/images/15.png">
+<meta property="og:image" content="http://example.com/images/16.png">
+<meta property="og:image" content="http://example.com/images/17.png">
+<meta property="og:image" content="http://example.com/images/18.png">
+<meta property="og:image" content="http://example.com/images/19.png">
+<meta property="og:image" content="http://example.com/images/20.png">
+<meta property="og:image" content="http://example.com/images/21.png">
+<meta property="og:image" content="http://example.com/images/22.png">
+<meta property="og:image" content="http://example.com/images/23.png">
+<meta property="og:image" content="http://example.com/images/24.png">
+<meta property="og:image" content="http://example.com/images/25.png">
+<meta property="og:image" content="http://example.com/images/26.png">
+<meta property="og:image" content="http://example.com/images/27.png">
+<meta property="og:image" content="http://example.com/images/28.png">
+<meta property="og:image" content="http://example.com/images/29.png">
+<meta property="og:image" content="http://example.com/images/30.png">
+<meta property="og:image" content="http://example.com/images/31.png">
+<meta property="article:published_time" content="2024-03-07T12:02:14.000Z">
+<meta property="article:modified_time" content="2024-03-08T10:07:40.414Z">
+<meta property="article:author" content="caleb">
+<meta property="article:tag" content="golang、gorm、mysql、链式编程">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/images/6.png">
+
+<link rel="canonical" href="http://example.com/2024/03/07/gorm%E5%89%96%E6%9E%90%E4%B8%8E%E5%AE%9E%E8%B7%B5/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>gorm剖析与实践 | caleb`s blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="caleb`s blog" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">caleb`s blog</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">体育迷&程序员综合体</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+  <div class="reading-progress-bar"></div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/03/07/gorm%E5%89%96%E6%9E%90%E4%B8%8E%E5%AE%9E%E8%B7%B5/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="caleb">
+      <meta itemprop="description" content="golang、java、⚽️、🏀">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="caleb`s blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          gorm剖析与实践
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2024-03-07 20:02:14" itemprop="dateCreated datePublished" datetime="2024-03-07T20:02:14+08:00">2024-03-07</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2024-03-08 18:07:40" itemprop="dateModified" datetime="2024-03-08T18:07:40+08:00">2024-03-08</time>
+              </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <blockquote>
+<p>作为golang中代表性的orm框架，它是如何实现的？有哪些特点？如何利用它提升开发效率？</p>
+</blockquote>
+<h1 id="1、GORM概述"><a href="#1、GORM概述" class="headerlink" title="1、GORM概述"></a>1、GORM概述</h1><p>之前工作经历中使用java比较多，在ORM方面主要使用Mybatis，并做过一些扩展，如：基于拦截器实现动态数据权限。这里简单记录下学习gorm原理的过程。</p>
+<p>什么是ORM？</p>
+<p>ORM：对象关系映射（Object Relational Mapping）是通过使用描述对象和数据库之间映射的元数据，将面向对象语言程序中的对象自动持久化到关系数据库中。对应关系如下：<br><img src="/../images/6.png" alt="6.png"></p>
+<p>ORM 框架相当于对象和数据库中间的一个桥梁，借助 ORM 可以避免写重复而繁琐的 SQL 语句，仅仅通过操作某个具体的对象，就能够完成对关系型数据库的基础性操作。</p>
+<p>什么是gorm？</p>
+<p>GORM：The fantastic ORM library for Golang aims to be developer friendly.</p>
+<p>在gorm官网中这样描述该框架：一款出色且对开发人员友好的golang orm库。同时具备如下特性：</p>
+<ul>
+<li>全功能 ORM</li>
+<li>关联 (Has One，Has Many，Belongs To，Many To Many)</li>
+<li>Create，Save，Update，Delete，Find 中钩子方法</li>
+<li>支持 Preload、Joins 的预加载</li>
+<li>事务，嵌套事务，Save Point，Rollback To Saved Point</li>
+<li>Context，预编译模式，DryRun 模式</li>
+<li>批量插入，FindInBatches，Find&#x2F;Create with Map，使用 SQL 表达式、Context Valuer 进行 CRUD</li>
+<li>SQL 构建器，Upsert，数据库锁，Optimizer&#x2F;Index&#x2F;Comment Hint，命名参数，子查询</li>
+<li>复合主键，索引，约束</li>
+<li>灵活的可扩展插件 API：Database Resolver（多数据库，读写分离）、Prometheus…</li>
+<li>开发者友好</li>
+</ul>
+<p>基于此我们来看看gorm的一些基础使用和实现原理，同时如何利用该框架的特性提升应用开发效率。</p>
+<h1 id="2、核心对象"><a href="#2、核心对象" class="headerlink" title="2、核心对象"></a>2、核心对象</h1><p>通过生成gorm的类图关系不难看出，首先有如下几个核心对象支撑gorm再dao层与数据库之间的代码运行。<br><img src="/../images/7.png" alt="7.png"></p>
+<p>DB：gorm全局对象</p>
+<p>Config：全局配置，如：事务开关、自定义命名策略、预编译开关、健康检查等配置</p>
+<p>Statement：SQL描述对象</p>
+<h1 id="3、一次简单的查询发生了什么"><a href="#3、一次简单的查询发生了什么" class="headerlink" title="3、一次简单的查询发生了什么"></a>3、一次简单的查询发生了什么</h1><p><img src="/../images/8.png" alt="8.png"></p>
+<p>在业务开发过程中首先应当定义与数据表相映射的业务对象，如上图的User对象，关于对象的定义与规则不做过多阐述，主要描述gorm在完成数据库DML过程中的细节。</p>
+<h2 id="3-1-初始化"><a href="#3-1-初始化" class="headerlink" title="3.1 初始化"></a>3.1 初始化</h2><p>此过程即完成以上核心对象的初始化动作，gorm通过对外暴露的open方法进行DB和Statement对象初始化，同时在该方法中可通过参数设置Config中的公开特性。<br><img src="/../images/9.png" alt="9.png"></p>
+<p>在Open方法中有两个操作比较重要：</p>
+<p>(1) <span style="color: red;">初始化DB对象</span>：有clone属性的定义，在后续链式操作中起到比较重要的作用。clone:初始创建的DB为1，分裂创建Session之后Session是1 ，如果会话为DEBUG模式则为2。</p>
+<p>(2) <span style="color: red;">初始化callback </span>：callback为gorm的核心，后续所有的crud操作都是基于callback实现，默认初始化：create、query、update、delete、row、raw基础实现。</p>
+<h2 id="3-2-链式调用"><a href="#3-2-链式调用" class="headerlink" title="3.2 链式调用"></a>3.2 链式调用</h2><p>在gorm中通过builder设计模式（适用多个简单对象分步骤构建一个复杂的对象）完成核心对象中Statement属性生成。主要基于如下两个api：</p>
+<p>(1) <span style="color: red;">chainable_api.go</span> ：通过适配数据库关键字的函数生成sql元数据，如：select、where、join、group等sql子句关键字<br><img src="/../images/10.png" alt="10.png"><br>例如在上述Select的函数中可设置查询列值，不调用Select则默认查询表所有列</p>
+<p>(2) <span style="color: red;">finisher_api.go</span>：通过执行最终组装好的Sql处理响应结果，如：Find、Update、Save等类似DML语句的关键字<br><img src="/../images/11.png" alt="11.png"><br>在Find函数中处理查询结果映射的结构体数据。</p>
+<p>在学习源码过程中会发现，无论是chainable 还是 finisher 中几乎所有函数都会包含这样一行代码：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">tx = db.getInstance()</span><br></pre></td></tr></table></figure>
+<p>来看看里面的实现细节：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(db *DB)</span></span> getInstance() *DB &#123;</span><br><span class="line"><span class="keyword">if</span> db.clone &gt; <span class="number">0</span> &#123;</span><br><span class="line">tx := &amp;DB&#123;Config: db.Config, Error: db.Error&#125;</span><br><span class="line"><span class="keyword">if</span> db.clone == <span class="number">1</span> &#123;</span><br><span class="line"><span class="comment">// clone with new statement</span></span><br><span class="line">tx.Statement = &amp;Statement&#123;</span><br><span class="line">DB:       tx,</span><br><span class="line">ConnPool: db.Statement.ConnPool,</span><br><span class="line">Context:  db.Statement.Context,</span><br><span class="line">Clauses:  <span class="keyword">map</span>[<span class="type">string</span>]clause.Clause&#123;&#125;,</span><br><span class="line">Vars:     <span class="built_in">make</span>([]<span class="keyword">interface</span>&#123;&#125;, <span class="number">0</span>, <span class="number">8</span>),</span><br><span class="line">&#125;</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line"><span class="comment">// with clone statement</span></span><br><span class="line">tx.Statement = db.Statement.clone()</span><br><span class="line">tx.Statement.DB = tx</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">return</span> tx</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">return</span> db</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>可以发现在该函数中便利用到了初始化时设置的clone属性，简单来说该函数是为了在链式调用过程中获取当前的gorm实例对象从而保证在链式操作中的一致性。</p>
+<h2 id="3-3-数据解析"><a href="#3-3-数据解析" class="headerlink" title="3.3 数据解析"></a>3.3 数据解析</h2><p>通过链式调用生成sql元数据后，如何将数据库的执行结果映射到结构体中？</p>
+<p>回到刚刚 finisher 中的 Find 函数最后的Execute的调用会包含以下步骤：<br><img src="/../images/12.png" alt="12.png"></p>
+<p>gorm在通过反射方法解析结构体（User对象）过程中主要生成的是 Schema 对象，该对象中主要包含结构体与数据库表的映射关系，以及如：关联约束、自定义表名、回调开关等。<br><img src="/../images/13.png" alt="13.png"></p>
+<h2 id="3-4-callback执行"><a href="#3-4-callback执行" class="headerlink" title="3.4 callback执行"></a>3.4 callback执行</h2><p>(1) 在 Execute 中可以发现完成结构体解析后，会有如下一段看上去非常简单的代码：<br><img src="/../images/14.png" alt="14.png"></p>
+<p>此处其实是与初始化callback中联系起来，会将前置所生成的Statement对象中的sql元数据提供给具体的callback生成最终数据库认可的sql语句，完成执行并扫描响应结果。</p>
+<p>之所以是for循环执行是因为在业务开发中我们可自行扩展例如：<span style="color: red;">BeforeCreate、BeforeDelete、AfterCreate </span>等自定义的callback，gorm会将当前DML类型中的callback排好顺序依次进行调用。</p>
+<p>(2) callback结构：<br><img src="/../images/15.png" alt="15.png"></p>
+<p><span style="color: red;">db.callbacks</span>：gorm全局对象db的callback的map集合，包含CRUD基础场景和自定义的callback。</p>
+<p><span style="color: red;">processor.callbacks</span>：只包含某一场景的多个callback实现，例如：Query场景包含：query、preload、after_query</p>
+<p>(3) 在默认注册Callbacks函数中，除查询外的Create、Update、Delete相关的操作均会默认注册事务相关callback。所以当业务中默认实现了如：BeforeCreate、BeforeDelete、AfterCreate等callback时，默认是存在同一事务当中。也可通过Config中的 <span style="color: red;">SkipDefaultTransaction&#x3D;false</span>  关闭<br><img src="/../images/16.png" alt="16.png"></p>
+<h2 id="3-4-结果映射"><a href="#3-4-结果映射" class="headerlink" title="3.4 结果映射"></a>3.4 结果映射</h2><p>query.go 中是具体查询的实现，包括</p>
+<p>(1) 根据Statemnt和目标结构体解析的Schema对象构建Sql</p>
+<p>(2) 执行Sql</p>
+<p>(3) 根据Schema的映射关系将sql结果Scan到目标对象中。<br><img src="/../images/17.png" alt="17.png"><br>至此通过gorm完成了一次简单的查询，其中如果有更加复杂的sql也可以使用chaniable 中提供的函数实现进行sql的组装。</p>
+<h1 id="4、如何实现动态表名"><a href="#4、如何实现动态表名" class="headerlink" title="4、如何实现动态表名"></a>4、如何实现动态表名</h1><p>在自己写一些简单案例同时具有分表的场景中，可能存在多个数据表映射同一个数据对象，如何做到动态表名映射？</p>
+<p>在gorm默认解析过程中如果 <span style="color: red;"> Statement对象中Table为空 </span>，则使用从结构体中解析出的表名（默认为结构体实现的TableName方法），用于后续构建Sql所需 。同时为了结构体解析过程中尽量不损耗性能，所以使用了内存缓存，当某结构体已生成Schema对象后，则默认使用缓存中的该对象。所以结构体实现的TableName() 函数只会调用一次。<br><img src="/../images/18.png" alt="18.png"></p>
+<p>从解析的源码中不难发现，如果可以手动设置Statement对象的Table就可以解决这个问题，基于此gorm在chaniable 中提供Table函数供开发人员可自行设置Statement中的Table，而不依赖解析结构体。</p>
+<p><img src="/../images/19.png" alt="19.png"></p>
+<h1 id="5、callback应用-自定义callback"><a href="#5、callback应用-自定义callback" class="headerlink" title="5、callback应用&amp;自定义callback"></a>5、callback应用&amp;自定义callback</h1><p>(1) BeforeUpdate 是gorm默认提供的一种场景，无需自定义注册，只需业务对象结构体实现该方法即可。</p>
+<p>gorm 提供了 <span style="color: red;"> Changed </span>方法，可以用在这里，它会返回检查字段是否有变更。且Changed 方法只与 Update、Updates 方法一起使用，只检查 Model 对象字段的值与将要更新的值是否相等，如果有变更，且字段没有被忽略，则返回 true，业务可依此特性应用。<br><img src="/../images/20.png" alt="20.png"><br><img src="/../images/21.png" alt="21.png"></p>
+<p>(2) gorm 提供基于默认Create、Query、Update、Delete、Row、Raw 自定义注册callback，同时可以指定自定义callback的顺序。在自定义callback中可通过db.Statement 获取当前实体与数据库映射的数据。如下：<br><img src="/../images/22.png" alt="22.png"></p>
+<h1 id="6、连接池"><a href="#6、连接池" class="headerlink" title="6、连接池"></a>6、连接池</h1><p>(1) gorm在连接池依旧是基于 database&#x2F;sql 的实现，简单概述：<br><img src="/../images/23.png" alt="23.png"></p>
+<p>freeConn：空闲连接池    connRequests：等待池</p>
+<p>getConn(获取连接)：</p>
+<ul>
+<li>首先检查空闲连接池是否有连接，若有，则检查该连接是否超时，若没超时，则返回该连接。</li>
+<li>若空闲连接池无连接，检查是否超过最大连接数，若超过则放入等待队列，否则新建连接返回。</li>
+</ul>
+<p>putConn(释放连接)：</p>
+<ul>
+<li>首先检查connRequests等待池中，是否有阻塞的请求</li>
+<li>若有，则将该connection给它，向channel中发数据，阻塞的连接请求就可以拿到连接</li>
+<li>否则，则判断是否到达最大空闲连接数，若无则将连接放至freeConn空闲连接池中，否则将连接关闭<br>同时底层会单独创建协程检查空间连接池中的连接是否超时，若超时则会回收这部分连接。</li>
+</ul>
+<p>(2) 异常处理：在日常业务运行时，经常会遇到以下关于连接池的异常</p>
+<ul>
+<li>TIME_WAIT</li>
+</ul>
+<p>可能原因：maxIdleConn &lt;&lt; maxOpenCount，应用瞬时打开较大的连接数，而无法放入空闲池被关闭。</p>
+<p>解决方案：不要采用默认连接配置，default maxIdleConn &#x3D; 2</p>
+<p>maxIdleConn &lt; maxOpenCount，常驻同数据库交互的goroutine 约等于 maxIdleConn</p>
+<ul>
+<li>invalid connection</li>
+</ul>
+<p>可能原因：mysql wait_timeout &lt; maxLifeTime，连接有效时长大于数据库最大等待时长</p>
+<p>解决方案：合理配置数据库的wait_timeout时间，数据库默认wait_timeout &#x3D; 28800</p>
+<p>maxLifeTime &lt; mysql wait_timeout</p>
+<h1 id="7、性能"><a href="#7、性能" class="headerlink" title="7、性能"></a>7、性能</h1><p>性能一直是ORM框架逃不开的话题，各种ORM框架都需要处理对象结构体与数据库表关系映射的反射解析、Sql的拼装等环节都可能造成一些性能的损耗。基于此本人简单对比了一下原生sql、sqlx、gorm在普通查询时的性能数据，如下：</p>
+<p>(1) 硬件：Apple M1  16G</p>
+<p>(2) 连接池配置：MaxOpenConn：300  MaxIdleConn：100</p>
+<p>(3) 测试场景：分别测试 表数据在 20w 和 50w 情况下，查询100、500、1000条数据下的性能对比（简单sql）</p>
+<p>20W 表数据：<br><img src="/../images/24.png" alt="24.png"></p>
+<p>50W表数据：<br><img src="/../images/25.png" alt="25.png"></p>
+<p>通过对比可以初步发现，在简单sql情况下查询响应时间上orm框架会比原声sql表现好一些，但是在内存分配上来说，适用orm框架由于多了许多数据层的操作，均是使用原生sql的好几倍，同时gorm会比sqlx占用内存更高。</p>
+<p>ps：此处性能对比场景比较简单，并不一定代表整体性能上ORM框架会比原生sql更优秀。</p>
+<h1 id="8、其他特性"><a href="#8、其他特性" class="headerlink" title="8、其他特性"></a>8、其他特性</h1><h2 id="8-1-Context-与-Session"><a href="#8-1-Context-与-Session" class="headerlink" title="8.1 Context 与 Session"></a>8.1 Context 与 Session</h2><p>(1) gorm通过WithContext方法提供对context 的支持，通过context可实现诸多业务场景，例如：sql级别的日志监控等<br><img src="/../images/26.png" alt="26.png"></p>
+<p>(2) gorm中Session方法，允许创建带个性化配置的会话模式，如通过设置PrepareStmt进行Sql缓存。<br><img src="/../images/27.png" alt="27.png"></p>
+<h2 id="8-2-事务处理"><a href="#8-2-事务处理" class="headerlink" title="8.2 事务处理"></a>8.2 事务处理</h2><p>(1) gorm支持嵌套事务、手动事务、SavePoint与RollbackTo等场景，同时可通过SkipDefaultTransaction配置是否开启事务。<br><img src="/../images/28.png" alt="28.png"><br><img src="/../images/29.png" alt="29.png"></p>
+<h2 id="8-3-sql注入"><a href="#8-3-sql注入" class="headerlink" title="8.3 sql注入"></a>8.3 sql注入</h2><p>gorm使用 database&#x2F;sql 的参数占位符来构造 SQL 语句，这可以自动转义参数，避免 SQL 注入数据。但是在某些特殊的链式调用函数中需要谨慎处理，如下：<br><img src="/../images/30.png" alt="30.png"></p>
+<h1 id="9、总结"><a href="#9、总结" class="headerlink" title="9、总结"></a>9、总结</h1><p>(1) ORM理论下期望能够承接一切从业务层到数据库层的操作，以一种标准化的方式获取数据，就像操作具体对象一样<br><img src="/../images/31.png" alt="31.png"></p>
+<p>优点：</p>
+<ul>
+<li>节省手工从元数据映射到模型的成本</li>
+<li>支持加载关联对象</li>
+<li>不用编写重复且基础的SQL、不用管理事务、数据库连接</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>元数据映射时类型难以匹配，比如枚举，日期等，大量字段映射时可能会造成性能瓶颈</li>
+<li>自动编写的SQL可能存在性能缺陷且难以优化</li>
+<li>复杂的连表查询，使用模型化的查询无法满足，容易导致慢查询</li>
+</ul>
+<p>往往在业务开发中使用 orm + sql 情况比较多，目前大多数orm库都支持原生sql的执行，用于满足复杂sql的场景。</p>
+<p>(2)  个人认为目前各开发语言中的orm库除了满足其基础的对象关系映射和sql封装之外，给开发人员更大的作用是将数据处理层与业务处理层进行解耦，<span style="color: red;"> 利用各种特性（拦截器、callback等）</span>引导我们将数据处理逻辑独立出来。</p>
+<p>大多数业务场景中的增、删、改操作对于gorm处理起来比较简单，基本为单实体的操作，往往查询面临复杂对象的映射使用orm框架处理比较困难。所以目前在比较火热的 <span style="color: red;"> DDD方法论中提出 CQRS（Command Query Responsibility Segregation） 模式</span>，该模式提倡将系统中的操作分为两类，即命令(Command) 与查询(Query)。</p>
+<ul>
+<li>命令则是对会引起数据发生变化操作的总称，可以理解为gorm的DML类语句中的新增，更新，删除这些操作，都是命令。</li>
+<li>查询则和字面意思一样，即不会对数据产生变化的操作，只是按照某些条件查找数据。</li>
+</ul>
+<p>gorm作为一个orm层框架能在一定程度上提升开发效率，但是业务系统复杂多变某个框架或者某种设计模式很难做到面面俱到，开发人员要做的便是取其精华。</p>
+<p>补充：以上是个人在学习gorm过程中一些总结，有理解不到到位的地方欢迎批评指正，一起交流。</p>
+<h1 id="10、参考"><a href="#10、参考" class="headerlink" title="10、参考"></a>10、参考</h1><p><a target="_blank" rel="noopener" href="https://gorm.cn/zh_CN/docs/migration.html">https://gorm.cn/zh_CN/docs/migration.html</a></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/golang%E3%80%81gorm%E3%80%81mysql%E3%80%81%E9%93%BE%E5%BC%8F%E7%BC%96%E7%A8%8B/" rel="tag"># golang、gorm、mysql、链式编程</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2024/03/07/Es%E5%A4%9A%E5%B1%82%E7%BA%A7%E6%95%B0%E6%8D%AE%E5%BB%BA%E6%A8%A1%E6%A1%88%E4%BE%8B/" rel="prev" title="Es多层级数据建模案例">
+      <i class="fa fa-chevron-left"></i> Es多层级数据建模案例
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2024/03/09/Gotests%E5%89%96%E6%9E%90%E4%B8%8E%E6%89%A9%E5%B1%95/" rel="next" title="Gotests剖析与扩展">
+      Gotests剖析与扩展 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#1%E3%80%81GORM%E6%A6%82%E8%BF%B0"><span class="nav-number">1.</span> <span class="nav-text">1、GORM概述</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#2%E3%80%81%E6%A0%B8%E5%BF%83%E5%AF%B9%E8%B1%A1"><span class="nav-number">2.</span> <span class="nav-text">2、核心对象</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#3%E3%80%81%E4%B8%80%E6%AC%A1%E7%AE%80%E5%8D%95%E7%9A%84%E6%9F%A5%E8%AF%A2%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88"><span class="nav-number">3.</span> <span class="nav-text">3、一次简单的查询发生了什么</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#3-1-%E5%88%9D%E5%A7%8B%E5%8C%96"><span class="nav-number">3.1.</span> <span class="nav-text">3.1 初始化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-2-%E9%93%BE%E5%BC%8F%E8%B0%83%E7%94%A8"><span class="nav-number">3.2.</span> <span class="nav-text">3.2 链式调用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-3-%E6%95%B0%E6%8D%AE%E8%A7%A3%E6%9E%90"><span class="nav-number">3.3.</span> <span class="nav-text">3.3 数据解析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-4-callback%E6%89%A7%E8%A1%8C"><span class="nav-number">3.4.</span> <span class="nav-text">3.4 callback执行</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-4-%E7%BB%93%E6%9E%9C%E6%98%A0%E5%B0%84"><span class="nav-number">3.5.</span> <span class="nav-text">3.4 结果映射</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#4%E3%80%81%E5%A6%82%E4%BD%95%E5%AE%9E%E7%8E%B0%E5%8A%A8%E6%80%81%E8%A1%A8%E5%90%8D"><span class="nav-number">4.</span> <span class="nav-text">4、如何实现动态表名</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#5%E3%80%81callback%E5%BA%94%E7%94%A8-%E8%87%AA%E5%AE%9A%E4%B9%89callback"><span class="nav-number">5.</span> <span class="nav-text">5、callback应用&amp;自定义callback</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#6%E3%80%81%E8%BF%9E%E6%8E%A5%E6%B1%A0"><span class="nav-number">6.</span> <span class="nav-text">6、连接池</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#7%E3%80%81%E6%80%A7%E8%83%BD"><span class="nav-number">7.</span> <span class="nav-text">7、性能</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#8%E3%80%81%E5%85%B6%E4%BB%96%E7%89%B9%E6%80%A7"><span class="nav-number">8.</span> <span class="nav-text">8、其他特性</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#8-1-Context-%E4%B8%8E-Session"><span class="nav-number">8.1.</span> <span class="nav-text">8.1 Context 与 Session</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-2-%E4%BA%8B%E5%8A%A1%E5%A4%84%E7%90%86"><span class="nav-number">8.2.</span> <span class="nav-text">8.2 事务处理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-3-sql%E6%B3%A8%E5%85%A5"><span class="nav-number">8.3.</span> <span class="nav-text">8.3 sql注入</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#9%E3%80%81%E6%80%BB%E7%BB%93"><span class="nav-number">9.</span> <span class="nav-text">9、总结</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#10%E3%80%81%E5%8F%82%E8%80%83"><span class="nav-number">10.</span> <span class="nav-text">10、参考</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">caleb</p>
+  <div class="site-description" itemprop="description">golang、java、⚽️、🏀</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">4</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">caleb</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://pisces.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Pisces</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>

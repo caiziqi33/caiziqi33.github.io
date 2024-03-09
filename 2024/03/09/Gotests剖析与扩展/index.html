@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.1.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"example.com","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="说到golang项目的单元测试，gotests是一个绕不开的开源框架，它可以为函数生成表驱动测试，在生成之后再添加测试数据即可完成测试代码的编写。本文就gotests框架的实现机制以及在单元测试中的扩展实践展开。  1、gotests使用 安装：  go install github.com&#x2F;cweill&#x2F;gotests&#x2F;gotests  代码生成：  现有如下简单">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Gotests剖析与扩展">
+<meta property="og:url" content="http://example.com/2024/03/09/Gotests%E5%89%96%E6%9E%90%E4%B8%8E%E6%89%A9%E5%B1%95/index.html">
+<meta property="og:site_name" content="caleb&#96;s blog">
+<meta property="og:description" content="说到golang项目的单元测试，gotests是一个绕不开的开源框架，它可以为函数生成表驱动测试，在生成之后再添加测试数据即可完成测试代码的编写。本文就gotests框架的实现机制以及在单元测试中的扩展实践展开。  1、gotests使用 安装：  go install github.com&#x2F;cweill&#x2F;gotests&#x2F;gotests  代码生成：  现有如下简单">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://example.com/images/32.png">
+<meta property="og:image" content="http://example.com/images/33.png">
+<meta property="og:image" content="http://example.com/images/34.png">
+<meta property="og:image" content="http://example.com/images/ast%E8%A7%A3%E6%9E%90%E6%96%87%E4%BB%B6.docx">
+<meta property="og:image" content="http://example.com/images/35.png">
+<meta property="og:image" content="http://example.com/images/36.png">
+<meta property="og:image" content="http://example.com/images/37.png">
+<meta property="og:image" content="http://example.com/images/38.png">
+<meta property="og:image" content="http://example.com/images/39.png">
+<meta property="article:published_time" content="2024-03-09T13:00:39.000Z">
+<meta property="article:modified_time" content="2024-03-09T13:46:32.492Z">
+<meta property="article:author" content="caleb">
+<meta property="article:tag" content="gotests、单元测试、mock">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/images/32.png">
+
+<link rel="canonical" href="http://example.com/2024/03/09/Gotests%E5%89%96%E6%9E%90%E4%B8%8E%E6%89%A9%E5%B1%95/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Gotests剖析与扩展 | caleb`s blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="caleb`s blog" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">caleb`s blog</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">体育迷&程序员综合体</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+  <div class="reading-progress-bar"></div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/03/09/Gotests%E5%89%96%E6%9E%90%E4%B8%8E%E6%89%A9%E5%B1%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="caleb">
+      <meta itemprop="description" content="golang、java、⚽️、🏀">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="caleb`s blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Gotests剖析与扩展
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+              
+
+              <time title="创建时间：2024-03-09 21:00:39 / 修改时间：21:46:32" itemprop="dateCreated datePublished" datetime="2024-03-09T21:00:39+08:00">2024-03-09</time>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <blockquote>
+<p>说到golang项目的单元测试，gotests是一个绕不开的开源框架，它可以为函数生成表驱动测试，在生成之后再添加测试数据即可完成测试代码的编写。本文就gotests框架的实现机制以及在单元测试中的扩展实践展开。</p>
+</blockquote>
+<h1 id="1、gotests使用"><a href="#1、gotests使用" class="headerlink" title="1、gotests使用"></a>1、gotests使用</h1><ul>
+<li>安装：</li>
+</ul>
+<p>go install github.com&#x2F;cweill&#x2F;gotests&#x2F;gotests</p>
+<ul>
+<li>代码生成：</li>
+</ul>
+<p>现有如下简单工具代码 swap.go</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> swap</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">	<span class="string">&quot;errors&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment">// Swap exchanges s[i] and s[j].</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Swap</span><span class="params">(s []<span class="keyword">interface</span>&#123;&#125;, i, j <span class="type">int</span>)</span></span> <span class="type">error</span> &#123;</span><br><span class="line">	<span class="keyword">if</span> s == <span class="literal">nil</span> &#123;</span><br><span class="line">		<span class="keyword">return</span> errors.New(<span class="string">&quot;slice can&#x27;t be nil&quot;</span>)</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">if</span> (i &lt; <span class="number">0</span> || i &gt;= <span class="built_in">len</span>(s)) || (j &lt; <span class="number">0</span> || j &gt;= <span class="built_in">len</span>(s)) &#123;</span><br><span class="line">		<span class="keyword">return</span> errors.New(<span class="string">&quot;illegal index&quot;</span>)</span><br><span class="line">	&#125;</span><br><span class="line">	s[i], s[j] = s[j], s[i]</span><br><span class="line">	<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>使用命令：gotests -all -w …&#x2F;go&#x2F;src&#x2F;swap&#x2F;swap.go 即可生成关于 swap.go 文件中所有函数的表驱动测试形式的单元测试，包含在与 swap.go 同目录下的 swap_test.go 文件中，在 TODO 中添加测试数据即可完成函数的单元测试。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> swap</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> <span class="string">&quot;testing&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">TestSwap</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">	<span class="keyword">type</span> args <span class="keyword">struct</span> &#123;</span><br><span class="line">		s []<span class="keyword">interface</span>&#123;&#125;</span><br><span class="line">		i <span class="type">int</span></span><br><span class="line">		j <span class="type">int</span></span><br><span class="line">	&#125;</span><br><span class="line">	tests := []<span class="keyword">struct</span> &#123;</span><br><span class="line">		name    <span class="type">string</span></span><br><span class="line">		args    args</span><br><span class="line">		wantErr <span class="type">bool</span></span><br><span class="line">	&#125;&#123;</span><br><span class="line">		<span class="comment">// <span class="doctag">TODO:</span> Add test cases.</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">for</span> _, tt := <span class="keyword">range</span> tests &#123;</span><br><span class="line">		t.Run(tt.name, <span class="function"><span class="keyword">func</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">			<span class="keyword">if</span> err := Swap(tt.args.s, tt.args.i, tt.args.j); (err != <span class="literal">nil</span>) != tt.wantErr &#123;</span><br><span class="line">				t.Errorf(<span class="string">&quot;Swap() error = %v, wantErr %v&quot;</span>, err, tt.wantErr)</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>以上函数中的实现都是基于go原生的方法实现，但是在业务代码中充满了各种外部依赖（RPC接口、Redis、DB查询等），最基础的业务代码结构为：Controller -&gt; Service -&gt; Dao ，如某service代码如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> testdata</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> </span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> UserService <span class="keyword">struct</span> &#123;</span><br><span class="line">	PersonService *service.PersonService <span class="string">`wired:&quot;true&quot;`</span></span><br><span class="line">	PersonDao     *dao.PersonDao         <span class="string">`wired:&quot;true&quot;`</span></span><br><span class="line">	Calculator    *Calculator            <span class="string">`wired:&quot;true&quot;`</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(u *UserService)</span></span> GetUserInfo(id <span class="type">int</span>, name <span class="type">string</span>) (*model.UserInfo, <span class="type">error</span>) &#123;</span><br><span class="line">	userInfo := &amp;model.UserInfo&#123;</span><br><span class="line">		Id:  id * <span class="number">100</span>,</span><br><span class="line">		Age: id * <span class="number">10</span>,</span><br><span class="line">	&#125;</span><br><span class="line">	person, err := u.PersonService.GetPersonInfo(id)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">	&#125;</span><br><span class="line">	userInfo.Name = person.FirstName + <span class="string">&quot;-&quot;</span> + name</span><br><span class="line">	<span class="keyword">switch</span> id &#123;</span><br><span class="line">	<span class="keyword">case</span> <span class="number">1</span>:</span><br><span class="line">		userInfo.Address = <span class="string">&quot;LAC&quot;</span></span><br><span class="line">	<span class="keyword">case</span> <span class="number">2</span>:</span><br><span class="line">		userInfo.Address = <span class="string">&quot;LAL&quot;</span></span><br><span class="line">	<span class="keyword">case</span> <span class="number">3</span>:</span><br><span class="line">		userInfo.Address = <span class="string">&quot;PHX&quot;</span></span><br><span class="line">	<span class="keyword">default</span>:</span><br><span class="line">		userInfo.Address = <span class="string">&quot;OKC&quot;</span></span><br><span class="line">	&#125;</span><br><span class="line">	subInfo := u.getSubInfo(id)</span><br><span class="line">	userInfo.Address = subInfo + <span class="string">&quot;-&quot;</span> + userInfo.Address</span><br><span class="line">	<span class="keyword">return</span> userInfo, <span class="literal">nil</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(u *UserService)</span></span> getSubInfo(id <span class="type">int</span>) <span class="type">string</span> &#123;</span><br><span class="line">	info := u.PersonDao.GetInfoByCondition(id)</span><br><span class="line">	<span class="keyword">return</span> info + <span class="string">&quot;_subInfo&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>此时使用gotests原生命令也可以生成出如下的单元测试函数：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">TestUserService_GetUserInfo</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">	<span class="keyword">type</span> fields <span class="keyword">struct</span> &#123;</span><br><span class="line">		PersonService *service.PersonService</span><br><span class="line">		PersonDao     *dao.PersonDao</span><br><span class="line">		Calculator    *Calculator</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">type</span> args <span class="keyword">struct</span> &#123;</span><br><span class="line">		id   <span class="type">int</span></span><br><span class="line">		name <span class="type">string</span></span><br><span class="line">	&#125;</span><br><span class="line">	tests := []<span class="keyword">struct</span> &#123;</span><br><span class="line">		name    <span class="type">string</span></span><br><span class="line">		fields  fields</span><br><span class="line">		args    args</span><br><span class="line">		want    *model.UserInfo</span><br><span class="line">		wantErr <span class="type">bool</span></span><br><span class="line">	&#125;&#123;</span><br><span class="line">		<span class="comment">// <span class="doctag">TODO:</span> Add test cases.</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">for</span> _, tt := <span class="keyword">range</span> tests &#123;</span><br><span class="line">		t.Run(tt.name, <span class="function"><span class="keyword">func</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">			u := &amp;UserService&#123;</span><br><span class="line">				PersonService: tt.fields.PersonService,</span><br><span class="line">				PersonDao:     tt.fields.PersonDao,</span><br><span class="line">				Calculator:    tt.fields.Calculator,</span><br><span class="line">			&#125;</span><br><span class="line">			got, err := u.GetUserInfo(tt.args.id, tt.args.name)</span><br><span class="line">			<span class="keyword">if</span> (err != <span class="literal">nil</span>) != tt.wantErr &#123;</span><br><span class="line">				t.Errorf(<span class="string">&quot;GetUserInfo() error = %v, wantErr %v&quot;</span>, err, tt.wantErr)</span><br><span class="line">				<span class="keyword">return</span></span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">if</span> !reflect.DeepEqual(got, tt.want) &#123;</span><br><span class="line">				t.Errorf(<span class="string">&quot;GetUserInfo() got = %v, want %v&quot;</span>, got, tt.want)</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>可以看到gotests依然可以帮助我们把依赖的外部结构体生成出来，并且创建统一的引用。但是当我们在写类似如上的业务代码的函数单元测试用例时，对于外部依赖的Service、Dao函数一般会采用mock的方式处理（此处不讨论该选用哪种mock方式，因为不同方式对于项目代码的整体结构要求不同），此时在生成出来的单测的 TODO 中就不光是填充参数与返回值那么简单了，必须考虑到如何让在每个用例中植入mock。</p>
+<p>这么看来，好像gotests帮助我们做了很多，但是又好像不是很够？带着这个问题先来看下gotests的实现机制，可能慢慢就有了思路。</p>
+<h1 id="2、AST机制"><a href="#2、AST机制" class="headerlink" title="2、AST机制"></a>2、AST机制</h1><p>gotests的核心原理之一是基于 <span style="color: red;">AST（抽象语法树）</span>解析目标go文件，主要包含以下步骤：</p>
+<ul>
+<li>读取命令行与环境变量中的参数设置</li>
+<li>根据指定的 目录&#x2F;文件 异步协程通过ast解析出原始 *ast.File</li>
+<li>通过 *ast.File 解析出文件公共部分：注释、包路径、引用路径</li>
+<li>通过 *ast.File 解析出文件中函数部分：函数名称、参数、返回值等</li>
+<li>返回整体的Result结构供模版解析</li>
+</ul>
+<p>AST 中包含很多元素，在gotests中主要引用到了以下几个AST元素。</p>
+<p>(1) TOKEN<br>编程语言中最小的具有独立含义的词法单元，不仅包含关键字，还包含用户自定义的标识符、运算符、分隔符和注释等<br><img src="/../images/32.png" alt="32.png"></p>
+<p>(2) 基础表达式<br>是完全由数值型面值和标识符组成的表达式，主要是指由一元和二元运算符组成的表达式，运算的主题是各种面值或标识符，基础表达式语法如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">Expression = UnaryExpr | Expression binary_op Expression .</span><br><span class="line">UnaryExpr  = Operand | unary_op UnaryExpr .</span><br><span class="line">Operand    = Literal | identifier | <span class="string">&quot;(&quot;</span> Expression <span class="string">&quot;)&quot;</span> .</span><br><span class="line"></span><br><span class="line">binary_op  = <span class="string">&quot;||&quot;</span> | <span class="string">&quot;&amp;&amp;&quot;</span> | rel_op | add_op | mul_op .</span><br><span class="line">rel_op     = <span class="string">&quot;==&quot;</span> | <span class="string">&quot;!=&quot;</span> | <span class="string">&quot;&lt;&quot;</span> | <span class="string">&quot;&lt;=&quot;</span> | <span class="string">&quot;&gt;&quot;</span> | <span class="string">&quot;&gt;=&quot;</span> .</span><br><span class="line">add_op     = <span class="string">&quot;+&quot;</span> | <span class="string">&quot;-&quot;</span> | <span class="string">&quot;|&quot;</span> | <span class="string">&quot;^&quot;</span> .</span><br><span class="line">mul_op     = <span class="string">&quot;*&quot;</span> | <span class="string">&quot;/&quot;</span> | <span class="string">&quot;%&quot;</span> | <span class="string">&quot;&lt;&lt;&quot;</span> | <span class="string">&quot;&gt;&gt;&quot;</span> | <span class="string">&quot;&amp;&quot;</span> | <span class="string">&quot;&amp;^&quot;</span> .</span><br><span class="line"></span><br><span class="line">unary_op   = <span class="string">&quot;+&quot;</span> | <span class="string">&quot;-&quot;</span> | <span class="string">&quot;!&quot;</span> | <span class="string">&quot;^&quot;</span> | <span class="string">&quot;*&quot;</span> | <span class="string">&quot;&amp;&quot;</span> | <span class="string">&quot;&lt;-&quot;</span> .</span><br></pre></td></tr></table></figure>
+<p>通过分析 go&#x2F;ast 包的文档，可以发现很多类型以 Expr 为后缀名的结构体，这是ast中的表达式承载形式，如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> BadExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> BinaryExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> CallExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> Expr <span class="keyword">interface</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> ExprStmt <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> IndexExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> KeyValueExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> ParenExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> SelectorExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> SliceExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> StarExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> TypeAssertExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br><span class="line"><span class="keyword">type</span> UnaryExpr <span class="keyword">struct</span>&#123; ... &#125;</span><br></pre></td></tr></table></figure>
+
+<p>(3) 代码结构<br>一个go文件中，顶级的语法元素有：package、import、type、const、var和func这几种，对应的结构如下：<br><img src="/../images/33.png" alt="33.png"></p>
+<p>(4) 函数声明<br>函数的声明对应 *ast.FuncDecl 类型，它的定义如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> FuncDecl <span class="keyword">struct</span> &#123;</span><br><span class="line">	Doc  *CommentGroup <span class="comment">// associated documentation; or nil</span></span><br><span class="line">	Recv *FieldList    <span class="comment">// receiver (methods); or nil (functions)</span></span><br><span class="line">	Name *Ident        <span class="comment">// function/method name</span></span><br><span class="line">	Type *FuncType     <span class="comment">// function signature: parameters, results, and position of &quot;func&quot; keyword</span></span><br><span class="line">	Body *BlockStmt    <span class="comment">// function body; or nil for external (non-Go) function</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>例如现在有如下函数声明，对应ast解析的结构为：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(p *xType)</span></span> Hello(arg1, arg2 <span class="type">int</span>) (<span class="type">bool</span>, <span class="type">error</span>) &#123; ... &#125;</span><br></pre></td></tr></table></figure>
+<p><img src="/../images/34.png" alt="34.png"></p>
+<p>(5) 语句和语句块<br>语句块和语句时在函数体部分定义，函数体就是一个语句块（如上述函数声明中的 <span style="color: red;">ast.BlockStmt</span>）。主要包括：表达式语句、返回语句、声明语句、分支语句、类型断言等。语句块的语法规范如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">FunctionBody  = Block .</span><br><span class="line"></span><br><span class="line">Block         = <span class="string">&quot;&#123;&quot;</span> StatementList <span class="string">&quot;&#125;&quot;</span> .</span><br><span class="line">StatementList = &#123; Statement <span class="string">&quot;;&quot;</span> &#125; .</span><br><span class="line"></span><br><span class="line">Statement     = Declaration | LabeledStmt | SimpleStmt</span><br><span class="line">              | GoStmt | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt</span><br><span class="line">              | FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt</span><br><span class="line">              | DeferStmt</span><br><span class="line">              .</span><br></pre></td></tr></table></figure>
+<p>介绍完上面的抽象的概念之后，看一下如果将 1 中的 service 通过ast解析之后应该是包含哪些内容（文件内容过长，此处直接挂文件）：<br><img src="/../images/ast%E8%A7%A3%E6%9E%90%E6%96%87%E4%BB%B6.docx" alt="ast.docx"></p>
+<p>与上述ast元素关联可以重点关注文档中红色标识部分或以下关键字部分：</p>
+<p>结构体定义（*ast.GenDecl ）- 39行</p>
+<p>函数定义（*ast.FuncDecl ）-156行</p>
+<p>函数体语句块（Body: *ast.BlockStmt ）- 258行</p>
+<p>依赖函数引用（*ast.CallExpr ）- 365行</p>
+<p>私有函数引用（*ast.CallExpr ）-650行</p>
+<p>返回语句块（*ast.ReturnStmt ）-723行</p>
+<p>在gotests中便是通过ast解析出go文件的内容，并通过一系列的词法和语法分析将抽取出生成单元测试用例所需的各种元素。</p>
+<h1 id="3、模版渲染"><a href="#3、模版渲染" class="headerlink" title="3、模版渲染"></a>3、模版渲染</h1><p>golang 的 text&#x2F;template 包是一个数据驱动的模版渲染工具。提供条件判断、数组或map遍历、参数赋值、函数或方法调用、自定义函数扩展、模版嵌套及重用等功能。基于该工具，可以轻松实现各种复杂场景的文本渲染和文件创建。</p>
+<p>一般而言，模版使用流程分为三个步骤：定义模版、解析模版、数据渲染模版。简单来讲，主要有以下方法：</p>
+<ul>
+<li><p>template.New</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">New</span><span class="params">(name <span class="type">string</span>)</span></span> *Template</span><br></pre></td></tr></table></figure>
+<p>创建名为：name的模版</p>
+</li>
+<li><p>template.Parse</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(t *Template)</span></span> Parse(text <span class="type">string</span>) (*Template, <span class="type">error</span>)</span><br></pre></td></tr></table></figure>
+<p>将字符串test内容解析为模版，如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    <span class="comment">//模板变量</span></span><br><span class="line">    <span class="keyword">type</span> User <span class="keyword">struct</span> &#123;</span><br><span class="line">        Id   <span class="type">int</span></span><br><span class="line">        Name <span class="type">string</span></span><br><span class="line">    &#125;</span><br><span class="line">    user := User&#123;<span class="number">100</span>, <span class="string">&quot;admin&quot;</span>&#125;</span><br><span class="line">    <span class="comment">//创建模板</span></span><br><span class="line">    tplname := <span class="string">&quot;user&quot;</span></span><br><span class="line">    tmpl := template.New(tplname)</span><br><span class="line">    <span class="comment">//解析模板</span></span><br><span class="line">    text := <span class="string">&quot;id = &#123;&#123;.Id&#125;&#125; name = &#123;&#123;.Name&#125;&#125;&quot;</span></span><br><span class="line">    tpl, err := tmpl.Parse(text)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="built_in">panic</span>(err)</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">//渲染输出</span></span><br><span class="line">    err = tpl.Execute(os.Stdout, user)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="built_in">panic</span>(err)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">==========================================</span><br><span class="line">id = <span class="number">100</span> name = admin</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>template.ParseFiles<br>接收一个字符串，字符串的内容是一个模版文件的路径，并解析该模版文件</p>
+</li>
+<li><p>template.Execute</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(t *Template)</span></span> Execute(wr io.Writer, data <span class="keyword">interface</span>&#123;&#125;) (err <span class="type">error</span>)</span><br></pre></td></tr></table></figure>
+<p>将解析好的模版应用到data，并将输出写入wr。模版可以安全的并发执行。<br>在gotests框架中便是先将已定义好的模版文件内容压缩（提升创建文件的效率），然后将通过ast解析后的结果，输出到已定义好的模版内容中，通过模版引擎创建出不同go文件对应的单元测试用例。<br><img src="/../images/35.png" alt="35.png"><br>核心的模版文件function.tmpl 文件内容如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br></pre></td><td class="code"><pre><span class="line">&#123;&#123;define <span class="string">&quot;function&quot;</span>&#125;&#125;</span><br><span class="line">&#123;&#123;- $f := .&#125;&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span></span> &#123;&#123;.TestName&#125;&#125;(t *testing.T) &#123;</span><br><span class="line">	&#123;&#123;- with .Receiver&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> .IsStruct&#125;&#125;</span><br><span class="line">			&#123;&#123;- <span class="keyword">if</span> .Fields&#125;&#125;</span><br><span class="line">				<span class="keyword">type</span> fields <span class="keyword">struct</span> &#123;</span><br><span class="line">				&#123;&#123;- <span class="keyword">range</span> .Fields&#125;&#125;</span><br><span class="line">					&#123;&#123;Field .&#125;&#125; &#123;&#123;.Type&#125;&#125;</span><br><span class="line">				&#123;&#123;- end&#125;&#125;</span><br><span class="line">				&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">	&#123;&#123;- end&#125;&#125;</span><br><span class="line">	&#123;&#123;- <span class="keyword">if</span> .TestParameters&#125;&#125;</span><br><span class="line">	<span class="keyword">type</span> args <span class="keyword">struct</span> &#123;</span><br><span class="line">		&#123;&#123;- <span class="keyword">range</span> .TestParameters&#125;&#125;</span><br><span class="line">				&#123;&#123;Param .&#125;&#125; &#123;&#123;.Type&#125;&#125;</span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">	&#125;</span><br><span class="line">	&#123;&#123;- end&#125;&#125;</span><br><span class="line">	tests := &#123;&#123; <span class="keyword">if</span> .Named&#125;&#125;<span class="keyword">map</span>[<span class="type">string</span>]<span class="keyword">struct</span>&#123;&#123;<span class="keyword">else</span>&#125;&#125;[]<span class="keyword">struct</span>&#123;&#123;end&#125;&#125; &#123;</span><br><span class="line">		&#123;&#123; <span class="keyword">if</span> (not .Named)&#125;&#125;name <span class="type">string</span>&#123;&#123;end&#125;&#125;</span><br><span class="line">		&#123;&#123;- with .Receiver&#125;&#125;</span><br><span class="line">			&#123;&#123;- <span class="keyword">if</span> and .IsStruct .Fields&#125;&#125;</span><br><span class="line">				fields fields</span><br><span class="line">			&#123;&#123;- <span class="keyword">else</span>&#125;&#125;</span><br><span class="line">				&#123;&#123;Receiver .&#125;&#125; &#123;&#123;.Type&#125;&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> .TestParameters&#125;&#125;</span><br><span class="line">			args args</span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">range</span> .TestResults&#125;&#125;</span><br><span class="line">			&#123;&#123;Want .&#125;&#125; &#123;&#123;.Type&#125;&#125;</span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> .ReturnsError&#125;&#125;</span><br><span class="line">			wantErr <span class="type">bool</span></span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">	&#125;&#123;</span><br><span class="line">		<span class="comment">// <span class="doctag">TODO:</span> Add test cases.  base</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">for</span> &#123;&#123;<span class="keyword">if</span> (or .Subtests (not .IsNaked))&#125;&#125; &#123;&#123;<span class="keyword">if</span> .Named&#125;&#125;name&#123;&#123;<span class="keyword">else</span>&#125;&#125;_&#123;&#123;end&#125;&#125;, tt := &#123;&#123;end&#125;&#125; <span class="keyword">range</span> tests &#123;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> .Subtests&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> .Parallel&#125;&#125;tt := tt;&#123;&#123;end&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> and .Parallel .Named&#125;&#125;name := name;&#123;&#123; end &#125;&#125;</span><br><span class="line">		t.Run(&#123;&#123;<span class="keyword">if</span> .Named&#125;&#125;name&#123;&#123;<span class="keyword">else</span>&#125;&#125;tt.name&#123;&#123;end&#125;&#125;, <span class="function"><span class="keyword">func</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">			&#123;&#123;- <span class="keyword">if</span> .Parallel&#125;&#125;t.Parallel()&#123;&#123;end&#125;&#125;</span><br><span class="line">		&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- with .Receiver&#125;&#125;</span><br><span class="line">				&#123;&#123;- <span class="keyword">if</span> .IsStruct&#125;&#125;</span><br><span class="line">					&#123;&#123;Receiver .&#125;&#125; := &#123;&#123;<span class="keyword">if</span> .Type.IsStar&#125;&#125;&amp;&#123;&#123;end&#125;&#125;&#123;&#123;.Type.Value&#125;&#125;&#123;</span><br><span class="line">					&#123;&#123;- <span class="keyword">range</span> .Fields&#125;&#125;</span><br><span class="line">						&#123;&#123;.Name&#125;&#125;: tt.fields.&#123;&#123;Field .&#125;&#125;,</span><br><span class="line">					&#123;&#123;- end&#125;&#125;</span><br><span class="line">					&#125;</span><br><span class="line">				&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- <span class="keyword">range</span> .Parameters&#125;&#125;</span><br><span class="line">				&#123;&#123;- <span class="keyword">if</span> .IsWriter&#125;&#125;</span><br><span class="line">					&#123;&#123;Param .&#125;&#125; := &amp;bytes.Buffer&#123;&#125;</span><br><span class="line">				&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- <span class="keyword">if</span> and (not .OnlyReturnsError) (not .OnlyReturnsOneValue) &#125;&#125;</span><br><span class="line">				&#123;&#123;template <span class="string">&quot;results&quot;</span> $f&#125;&#125; &#123;&#123;template <span class="string">&quot;call&quot;</span> $f&#125;&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- <span class="keyword">if</span> .ReturnsError&#125;&#125;</span><br><span class="line">				<span class="keyword">if</span> &#123;&#123;<span class="keyword">if</span> .OnlyReturnsError&#125;&#125; err := &#123;&#123;template <span class="string">&quot;call&quot;</span> $f&#125;&#125;; &#123;&#123;end&#125;&#125; (err != <span class="literal">nil</span>) != tt.wantErr &#123;</span><br><span class="line">					t.Errorf(<span class="string">&quot;&#123;&#123;template &quot;</span>message<span class="string">&quot; $f&#125;&#125; error = %v, wantErr %v&quot;</span>, &#123;&#123;template <span class="string">&quot;inputs&quot;</span> $f&#125;&#125; err, tt.wantErr)</span><br><span class="line">					&#123;&#123;- <span class="keyword">if</span> .TestResults&#125;&#125;</span><br><span class="line">						&#123;&#123;<span class="keyword">if</span> .Subtests &#125;&#125;<span class="keyword">return</span>&#123;&#123;<span class="keyword">else</span>&#125;&#125;<span class="keyword">continue</span>&#123;&#123;end&#125;&#125;</span><br><span class="line">					&#123;&#123;- end&#125;&#125;</span><br><span class="line">				&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">			&#123;&#123;- <span class="keyword">range</span> .TestResults&#125;&#125;</span><br><span class="line">				&#123;&#123;- <span class="keyword">if</span> .IsWriter&#125;&#125;</span><br><span class="line">					<span class="keyword">if</span> &#123;&#123;Got .&#125;&#125; := &#123;&#123;Param .&#125;&#125;.String(); &#123;&#123;Got .&#125;&#125; != tt.&#123;&#123;Want .&#125;&#125; &#123;</span><br><span class="line">				&#123;&#123;- <span class="keyword">else</span> <span class="keyword">if</span> .IsBasicType&#125;&#125;</span><br><span class="line">					<span class="keyword">if</span> &#123;&#123;<span class="keyword">if</span> $f.OnlyReturnsOneValue&#125;&#125;&#123;&#123;Got .&#125;&#125; := &#123;&#123;template <span class="string">&quot;inline&quot;</span> $f&#125;&#125;; &#123;&#123;end&#125;&#125; &#123;&#123;Got .&#125;&#125; != tt.&#123;&#123;Want .&#125;&#125; &#123;</span><br><span class="line">				&#123;&#123;- <span class="keyword">else</span>&#125;&#125;</span><br><span class="line">					<span class="keyword">if</span> &#123;&#123;<span class="keyword">if</span> $f.OnlyReturnsOneValue&#125;&#125;&#123;&#123;Got .&#125;&#125; := &#123;&#123;template <span class="string">&quot;inline&quot;</span> $f&#125;&#125;; &#123;&#123;end&#125;&#125; !reflect.DeepEqual(&#123;&#123;Got .&#125;&#125;, tt.&#123;&#123;Want .&#125;&#125;) &#123;</span><br><span class="line">				&#123;&#123;- end&#125;&#125;</span><br><span class="line">				t.Errorf(<span class="string">&quot;&#123;&#123;template &quot;</span>message<span class="string">&quot; $f&#125;&#125; &#123;&#123;if $f.ReturnsMultiple&#125;&#125;&#123;&#123;Got .&#125;&#125; &#123;&#123;end&#125;&#125;= %v, want %v&quot;</span>, &#123;&#123;template <span class="string">&quot;inputs&quot;</span> $f&#125;&#125; &#123;&#123;Got .&#125;&#125;, tt.&#123;&#123;Want .&#125;&#125;)</span><br><span class="line">				&#125;</span><br><span class="line">			&#123;&#123;- end&#125;&#125;</span><br><span class="line">		&#123;&#123;- <span class="keyword">if</span> .Subtests &#125;&#125; &#125;) &#123;&#123;- end -&#125;&#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">&#123;&#123;end&#125;&#125;</span><br></pre></td></tr></table></figure>
+<p>了解完gotests中以上两个核心内容之后可以简单概括出，该框架的整体的工作流程大致如下：<br><img src="/../images/36.png" alt="36.png"><br>接下来回到上面抛出的问题，在这个流程之中其实我们可以简单扩展一下。</p>
+</li>
+</ul>
+<h1 id="4、扩展"><a href="#4、扩展" class="headerlink" title="4、扩展"></a>4、扩展</h1><p>gotests本身其实可扩展性还是挺高的，它自身提供很多初始化命令可以给我们不同场景下的单测提供解决方案，同时源码中也扩展了基于testify的单测模版，只需要通过初始化命令 template 指定即可。如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">-all                  generate tests <span class="keyword">for</span> all functions and methods</span><br><span class="line"></span><br><span class="line">-excl                 regexp. generate tests <span class="keyword">for</span> functions and methods that don<span class="string">&#x27;t</span></span><br><span class="line"><span class="string">                       match. Takes precedence over -only, -exported, and -all</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-exported             generate tests for exported functions and methods. Takes</span></span><br><span class="line"><span class="string">                       precedence over -only and -all</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-i                    print test inputs in error messages</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-only                 regexp. generate tests for functions and methods that match only.</span></span><br><span class="line"><span class="string">                       Takes precedence over -all</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-nosubtests           disable subtest generation when &gt;= Go 1.7</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-parallel             enable parallel subtest generation when &gt;= Go 1.7.</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-w                    write output to (test) files instead of stdout</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-template_dir         Path to a directory containing custom test code templates. Takes</span></span><br><span class="line"><span class="string">                       precedence over -template. This can also be set via environment</span></span><br><span class="line"><span class="string">                       variable GOTESTS_TEMPLATE_DIR</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-template             Specify custom test code templates, e.g. testify. This can also</span></span><br><span class="line"><span class="string">                       be set via environment variable GOTESTS_TEMPLATE</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-template_params_file read external parameters to template by json with file</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">-template_params      read external parameters to template by json with stdin</span></span><br></pre></td></tr></table></figure>
+<p>其中 template_dir 便是可以自定义指定模版的路径，template_params 可以向模版文件中输入自定义的内容。这么一看是不是渐渐有思路了，我们可以根据原始的模版文件做一些修改，满足不同项目中的代码特性来生成单元测试文件。</p>
+<ul>
+<li>函数体解析<br>通过对gotests框架的了解发现，它并没有对函数体内部的内容进行解析，这便是上述问题说的当业务代码遇到的外部依赖的函数调用时如何进行mock。要知道如何mock肯定需要首先知道哪些部分需要进行mock，并且mock的内容是什么样的。</li>
+</ul>
+<p>上述流程说到gotests有一部分函数解析的步骤，在这个环节中可以加入对函数体的解析，分析出外部调用。在 go&#x2F;ast 中提供 Inspect 函数可对指定类型中的内容按照深度优先检索方法（depth-first order）遍历语法树，此时我们需要判断该节点是否为外部调用即可，如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Inspect traverses an AST in depth-first order: It starts by calling</span></span><br><span class="line"><span class="comment">// f(node); node must not be nil. If f returns true, Inspect invokes f</span></span><br><span class="line"><span class="comment">// recursively for each of the non-nil children of node, followed by a</span></span><br><span class="line"><span class="comment">// call of f(nil).</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Inspect</span><span class="params">(node Node, f <span class="keyword">func</span>(Node)</span></span> <span class="type">bool</span>) &#123;</span><br><span class="line">	Walk(inspector(f), node)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>通过对ast中的元素定义了解到，*ast.CallExpr 为函数调用的节点元素，所以解析函数体的主体逻辑可以如下：<br><img src="/../images/37.png" alt="37.png"><br>代码块如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 深度遍历解析</span></span><br><span class="line">	ast.Inspect(funcDecl.Body, <span class="function"><span class="keyword">func</span><span class="params">(n ast.Node)</span></span> <span class="type">bool</span> &#123;</span><br><span class="line">		<span class="comment">// Find assign Statements</span></span><br><span class="line">		retAssign, okAssign := n.(*ast.AssignStmt)</span><br><span class="line">		<span class="keyword">if</span> okAssign &#123;</span><br><span class="line">			<span class="comment">// Find CallExpr Statement</span></span><br><span class="line">			ast.Inspect(retAssign, <span class="function"><span class="keyword">func</span><span class="params">(a ast.Node)</span></span> <span class="type">bool</span> &#123;</span><br><span class="line">				retCall, okCall := a.(*ast.CallExpr)</span><br><span class="line">				<span class="keyword">if</span> okCall &#123;</span><br><span class="line">					resultCount := <span class="built_in">len</span>(retAssign.Lhs)</span><br><span class="line">					<span class="comment">// 判断是否为业务函数调用</span></span><br><span class="line">					subFunctions = parseFuncCallExpr(retCall, resultCount, functionList, subFunctions, relFunctionMap,</span><br><span class="line">						functionDecls)</span><br><span class="line">				&#125;</span><br><span class="line">				<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">			&#125;)</span><br><span class="line">			<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">	&#125;)</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><p>公共gomonkey单测文件 <br>通过以上逻辑便可以解析出函数体内的外部函数调用的信息，接下来只需要考虑如何基于这些信息构建业务所需的mock调用即可。在目前团队业务中底层采用的是 gomonkey 的mock模式，并将通用的断言判断、mock目标函数写到同目录下的公共文件base_test.go 中，尽量减少重复代码，如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Hook <span class="keyword">struct</span> &#123;</span><br><span class="line">	target   <span class="keyword">interface</span>&#123;&#125;</span><br><span class="line">	returns  []<span class="keyword">interface</span>&#123;&#125;</span><br><span class="line">	function <span class="keyword">interface</span>&#123;&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">HookList</span><span class="params">(f ...Hook)</span></span> []Hook &#123;</span><br><span class="line">	<span class="keyword">return</span> f</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">HookReturn</span><span class="params">(target <span class="keyword">interface</span>&#123;&#125;, returns ...<span class="keyword">interface</span>&#123;&#125;)</span></span> Hook &#123;</span><br><span class="line">	<span class="keyword">return</span> Hook&#123;target: target, returns: returns&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">HookFunc</span><span class="params">(target <span class="keyword">interface</span>&#123;&#125;, function <span class="keyword">interface</span>&#123;&#125;)</span></span> Hook &#123;</span><br><span class="line">	<span class="keyword">return</span> Hook&#123;target: target, function: function&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">hook</span><span class="params">(h Hook)</span></span> &#123;</span><br><span class="line">	val := reflect.ValueOf(h.target)</span><br><span class="line">	<span class="keyword">if</span> h.function != <span class="literal">nil</span> &#123;</span><br><span class="line">		gomonkey.NewPatches().ApplyCore(val, reflect.ValueOf(h.function))</span><br><span class="line">		<span class="keyword">return</span></span><br><span class="line">	&#125;</span><br><span class="line">	gomonkey.NewPatches().ApplyCore(val, reflect.MakeFunc(val.Type(), <span class="function"><span class="keyword">func</span><span class="params">(args []reflect.Value)</span></span> (results []reflect.Value) &#123;</span><br><span class="line">		<span class="keyword">var</span> res []reflect.Value</span><br><span class="line">		<span class="keyword">for</span> k, v := <span class="keyword">range</span> h.returns &#123;</span><br><span class="line">			<span class="keyword">if</span> v == <span class="literal">nil</span> &#123;</span><br><span class="line">				res = <span class="built_in">append</span>(res, reflect.Zero(val.Type().Out(k)))</span><br><span class="line">				<span class="keyword">continue</span></span><br><span class="line">			&#125;</span><br><span class="line">			res = <span class="built_in">append</span>(res, reflect.ValueOf(v))</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> res</span><br><span class="line">	&#125;))</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">RunTest</span><span class="params">(f <span class="keyword">interface</span>&#123;&#125;, tt <span class="keyword">interface</span>&#123;&#125;)</span></span> <span class="function"><span class="keyword">func</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">	<span class="keyword">return</span> <span class="function"><span class="keyword">func</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">		args := reflect.ValueOf(tt).FieldByName(<span class="string">&quot;Args&quot;</span>)</span><br><span class="line">		hooks := reflect.ValueOf(tt).FieldByName(<span class="string">&quot;Hook&quot;</span>)</span><br><span class="line">		want := reflect.ValueOf(tt).FieldByName(<span class="string">&quot;Want&quot;</span>)</span><br><span class="line">		<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; hooks.Len(); i++ &#123;</span><br><span class="line">			hook(hooks.Index(i).Interface().(Hook))</span><br><span class="line">		&#125;</span><br><span class="line"></span><br><span class="line">		<span class="keyword">var</span> param []reflect.Value</span><br><span class="line">		<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; args.NumField(); i++ &#123;</span><br><span class="line">			param = <span class="built_in">append</span>(param, args.Field(i))</span><br><span class="line">		&#125;</span><br><span class="line">		ret := reflect.ValueOf(f).Call(param)</span><br><span class="line">		<span class="keyword">for</span> k, v := <span class="keyword">range</span> ret &#123;</span><br><span class="line">			<span class="keyword">if</span> !reflect.DeepEqual(v.Interface(), want.Field(k).Interface()) &#123;</span><br><span class="line">				t.Errorf(<span class="string">&quot;get = %v, want = %v&quot;</span>, v.Interface(), want.Field(k).Interface())</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>自定义模版</p>
+</li>
+</ul>
+<p>通过以上分析可以看出，解析出函数体中的外部调用、创建公共mock文件之后，接下来只需要基于原生的gotests模版做修改即可。修改的重点在：</p>
+<p>(1) tests 结构体对象构建：包含Hook对象、参数对象、返回值对象<br>(2) 在原生的 TODO 中填充进外部函数的mock调用内容<br>(3) 单元测试的最终执行（调用base_test.go 中断言判断）</p>
+<p><img src="/../images/38.png" alt="38.png"></p>
+<p>经过以上三个步骤的扩展，gotests的工作流程现如下：</p>
+<p><img src="/../images/39.png" alt="39.png"></p>
+<p>注：是否屏蔽私有函数的设计有待商榷，在以上的流程中会以公有函数为单元测试用例的入口，遇到私有函数调用时会接着解析该私有函数中的外部依赖函数并统一生成mock调用信息。</p>
+<p>扩展之后，使用gotests原生命令并指定自定义的template（需压缩所有模版并集成到gotests源码中）创建的单测用例如下：</p>
+<p>gotests -all -w -template itea user_service.go</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">TestUserService_GetUserInfo</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">                <span class="keyword">type</span> args <span class="keyword">struct</span> &#123;</span><br><span class="line">                        Id   <span class="type">int</span></span><br><span class="line">                        Name <span class="type">string</span></span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">type</span> ret <span class="keyword">struct</span> &#123;</span><br><span class="line">                        Want *model.UserInfo</span><br><span class="line">                        Err  <span class="type">error</span></span><br><span class="line">                &#125;</span><br><span class="line">                tests := []<span class="keyword">struct</span> &#123;</span><br><span class="line">                        Name <span class="type">string</span></span><br><span class="line">                        Hook []Hook</span><br><span class="line">                        Args args</span><br><span class="line">                        Want ret</span><br><span class="line">                &#125;&#123;</span><br><span class="line">                        &#123;<span class="string">&quot;test1&quot;</span>, HookList(</span><br><span class="line">                              HookReturn((*service.PersonService).GetPersonInfo, <span class="literal">nil</span>, <span class="literal">nil</span>),</span><br><span class="line">                              HookReturn((*dao.PersonDao).GetInfoByCondition, <span class="literal">nil</span>),</span><br><span class="line">                        ), args&#123;&#125;, ret&#123;&#125;&#125;,</span><br><span class="line">                &#125;</span><br><span class="line">                U := &amp;UserService&#123;</span><br><span class="line">                        PersonService: &amp;service.PersonService&#123;&#125;,</span><br><span class="line">                        PersonDao: &amp;dao.PersonDao&#123;&#125;,</span><br><span class="line">                        Calculator: &amp;Calculator&#123;&#125;,</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">for</span> _, tt := <span class="keyword">range</span> tests &#123;</span><br><span class="line">                        t.Run(tt.Name, RunTest(U.GetUserInfo, tt))</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br></pre></td></tr></table></figure>
+
+<p>此时需要完善用例内容需要：<span style="color: red;">补充mock函数的返回值、单测目标函数的参数与返回值</span>即可</p>
+<h1 id="5、总结"><a href="#5、总结" class="headerlink" title="5、总结"></a>5、总结</h1><p>(1) 以上基于gotests源码的扩展依然有待完善的地方：对于外部依赖的mock调用，暂时还未能解析出对应的返回值类型，需要手动去填充。因为ast解析的逻辑关注的当前文件，对于import的内容只是做展示，后续的解决思路可以根据import的内容，解析项目路径中的结构体类型并获取到mock函数的返回值类型用作构建完整的mock调用</p>
+<p>(2) 如何平衡人工写单测带来的人力损耗和自动化的单元测试的优劣一直是开发人员争论不断的话题，严格来说越是省时省力的自动化生成式的单测，同样也损失了很多其他的收益，如：开发人员对代码结构的设计思考、重构是否友好等。总而言之，个人认为单元测试一定是一个有价值的事情，不同业务特性不同、历史包袱不一样，对于单测落地的方式也不同。但是也不能只为了单测而去写单测用例，更多的可能是为了整体的代码结构设计、边界情况考虑、维护性考虑等。</p>
+<p><span style="color: red;">补充：以上是本人基于使用gotests的一点思考与扩展，如有理解不到位的情况，欢迎批评指正或一起讨论关于单元测试落地的更多可行方案。</span></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/gotests%E3%80%81%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95%E3%80%81mock/" rel="tag"># gotests、单元测试、mock</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2024/03/07/gorm%E5%89%96%E6%9E%90%E4%B8%8E%E5%AE%9E%E8%B7%B5/" rel="prev" title="gorm剖析与实践">
+      <i class="fa fa-chevron-left"></i> gorm剖析与实践
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#1%E3%80%81gotests%E4%BD%BF%E7%94%A8"><span class="nav-number">1.</span> <span class="nav-text">1、gotests使用</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#2%E3%80%81AST%E6%9C%BA%E5%88%B6"><span class="nav-number">2.</span> <span class="nav-text">2、AST机制</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#3%E3%80%81%E6%A8%A1%E7%89%88%E6%B8%B2%E6%9F%93"><span class="nav-number">3.</span> <span class="nav-text">3、模版渲染</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#4%E3%80%81%E6%89%A9%E5%B1%95"><span class="nav-number">4.</span> <span class="nav-text">4、扩展</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#5%E3%80%81%E6%80%BB%E7%BB%93"><span class="nav-number">5.</span> <span class="nav-text">5、总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">caleb</p>
+  <div class="site-description" itemprop="description">golang、java、⚽️、🏀</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">4</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">caleb</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://pisces.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Pisces</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
